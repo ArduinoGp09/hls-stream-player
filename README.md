@@ -29,7 +29,9 @@
 ```text
 hls-stream-player/
 ├── index.html
-└── README.md
+├── README.md
+├── rthk-streams-full.csv
+└── rthk-streams-selected.csv
 ```
 
 ### Run locally
@@ -96,7 +98,9 @@ Open [http://localhost:8765/hls-stream-player/](http://localhost:8765/hls-stream
 ```text
 hls-stream-player/
 ├── index.html
-└── README.md
+├── README.md
+├── rthk-streams-full.csv
+└── rthk-streams-selected.csv
 ```
 
 ### 本機執行
@@ -163,7 +167,9 @@ python -m http.server 8765
 ```text
 hls-stream-player/
 ├── index.html
-└── README.md
+├── README.md
+├── rthk-streams-full.csv
+└── rthk-streams-selected.csv
 ```
 
 ### 本地运行
