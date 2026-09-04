@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101828" />
+    <meta name="description" content="A browser-based HLS live stream player." />
+  <title>HLS Stream Player · v5</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.2/dist/hls.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0b1120;
+        color: #edf2f7;
+        --panel: rgba(17, 27, 48, .88);
+        --muted: #9eabc2;
+        --line: rgba(161, 174, 199, .2);
+        --accent: #5eead4;
+        --accent-strong: #22c7ae;
+        --danger: #fb7185;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        background: radial-gradient(circle at 15% 0%, #183457 0, transparent 36%), radial-gradient(circle at 90% 20%, #123c48 0, transparent 30%), #0b1120;
+      }
+      button, input, select { font: inherit; }
+      button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(94, 234, 212, .35); outline-offset: 2px; }
+      .app-shell { width: min(100% - 32px, 960px); margin: 0 auto; padding: 72px 0 36px; }
+      .hero { margin-bottom: 28px; }
+      .hero-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      .eyebrow { color: var(--accent); font-size: .74rem; font-weight: 800; letter-spacing: .18em; }
+      .language-picker { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .78rem; }
+      .language-picker select { flex: none; width: auto; padding: 9px 11px; border-radius: 10px; }
+      h1 { margin: 10px 0 12px; font-size: clamp(2.2rem, 7vw, 4.8rem); line-height: .98; letter-spacing: -.06em; }
+      .lede { max-width: 650px; margin: 0; color: var(--muted); font-size: clamp(1rem, 2vw, 1.2rem); line-height: 1.6; }
+      .player-card { padding: clamp(16px, 3vw, 30px); border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 24px 80px rgba(0, 0, 0, .26); backdrop-filter: blur(18px); }
+      .player-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+      .toolbar-label { color: #dce5f2; font-size: .86rem; font-weight: 750; }
+      .player-frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 16px; background: linear-gradient(135deg, #18253d, #09101d); }
+      .player-card.is-collapsed .player-frame { aspect-ratio: auto; height: 58px; }
+      .player-card.is-collapsed .player-placeholder { display: none; }
+      video { display: block; width: 100%; height: 100%; object-fit: contain; }
+      .player-placeholder { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; gap: 12px; color: var(--muted); text-align: center; pointer-events: none; }
+      .player-placeholder.hidden { display: none; }
+      .pulse-dot, .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #64748b; }
+      .pulse-dot { width: 12px; height: 12px; margin: 0 auto; background: var(--accent); box-shadow: 0 0 0 8px rgba(94, 234, 212, .1); }
+      .status-row { display: flex; align-items: center; gap: 9px; min-height: 42px; color: var(--muted); font-size: .9rem; }
+      .status-row[data-state="success"] .status-dot { background: var(--accent); }
+      .status-row[data-state="error"] .status-dot { background: var(--danger); }
+      label { display: block; margin-bottom: 9px; color: #dce5f2; font-size: .86rem; font-weight: 700; }
+      .input-row { display: flex; gap: 10px; }
+      .select-wrap { display: flex; flex: 1; gap: 10px; min-width: 0; }
+      .select-wrap select { flex: 1; }
+      .playlist-editor { margin: 14px 0 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(11, 20, 38, .72); }
+      .playlist-editor[hidden] { display: none; }
+      .editor-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+      .editor-title { color: #dce5f2; font-size: .86rem; font-weight: 750; }
+      .playlist-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; padding-right: 2px; }
+      .playlist-item { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: #111a2b; }
+      .playlist-item-name { min-width: 0; flex: 1; overflow: hidden; color: #e6edf7; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+      .playlist-item-actions { display: flex; gap: 5px; }
+      .icon-button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: #1c2b42; color: #dce5f2; cursor: pointer; }
+      .icon-button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+      .icon-button:disabled { cursor: not-allowed; opacity: .35; }
+      .editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+      input, select { min-width: 0; flex: 1; padding: 14px 15px; border: 1px solid var(--line); border-radius: 12px; outline: none; background: #0b1426; color: #f8fafc; }
+      input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 234, 212, .14); }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+      .button { border: 0; border-radius: 11px; padding: 13px 16px; color: #eafffb; font-weight: 750; cursor: pointer; transition: transform .16s ease, background .16s ease, opacity .16s ease; }
+      .button:hover:not(:disabled) { transform: translateY(-1px); }
+      .button:disabled { cursor: wait; opacity: .6; transform: none; }
+      .primary { background: var(--accent-strong); color: #06211d; }
+      .secondary { background: #23435b; }
+      .ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+      .compact { width: auto; padding: 8px 11px; font-size: .78rem; }
+      .clear-button, .copy-button { white-space: nowrap; }
+      .url-row { display: flex; gap: 10px; }
+      .file-input { display: none; }
+      .hint, footer { color: var(--muted); font-size: .8rem; line-height: 1.55; }
+      .hint { margin: 18px 0 0; }
+      footer { padding: 22px 4px 0; text-align: center; }
+      @media (max-width: 640px) {
+        .app-shell { width: min(100% - 22px, 960px); padding-top: 42px; }
+        .hero-topline { align-items: flex-start; flex-direction: column; }
+        .input-row { flex-direction: column; }
+        .button { width: 100%; }
+        .compact { width: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-topline">
+          <div class="eyebrow" data-i18n="eyebrow">LIVE STREAM TOOL · V5</div>
+          <label class="language-picker" for="languageSelect"><span data-i18n="languageLabel">Language</span><select id="languageSelect" aria-label="Language"><option value="en">English</option><option value="zh-Hant">繁體中文</option><option value="zh-Hans">简体中文</option></select></label>
+        </div>
+        <h1 id="page-title" data-i18n="title">HLS Stream Player</h1>
+        <p class="lede" data-i18n="lede">Retrieve all RTHK live streams, choose one, and start listening.</p>
+      </section>
+
+      <section class="player-card is-collapsed" id="playerCard" aria-label="HLS player" data-i18n-aria-label="playerAriaLabel">
+        <div class="player-toolbar">
+          <span class="toolbar-label" data-i18n="player">Player</span>
+          <button class="button ghost compact" id="togglePlayerButton" type="button" aria-expanded="false" aria-controls="playerFrame" data-i18n="expandPlayer">Expand player</button>
+        </div>
+        <div class="player-frame" id="playerFrame">
+          <div class="player-placeholder" id="playerPlaceholder"><span class="pulse-dot" aria-hidden="true"></span><span data-i18n="readyMessage">Your stream is ready when you are.</span></div>
+          <video id="video" controls crossorigin="anonymous" playsinline preload="metadata"></video>
+        </div>
+
+        <div class="status-row" id="statusRow" aria-live="polite"><span class="status-dot" id="statusDot"></span><span id="statusText" data-i18n="noStream">No stream loaded</span></div>
+
+        <form id="streamForm" class="stream-form">
+          <label for="streamSelect" data-i18n="rthkLiveStream">RTHK live stream</label>
+          <div class="input-row">
+            <div class="select-wrap">
+              <select id="streamSelect" name="streamSelect" aria-describedby="streamUrl" required>
+                <option value="">Retrieve streams first</option>
+              </select>
+              <button class="button ghost compact" id="editPlaylistButton" type="button" data-i18n="editPlaylist">Edit playlist</button>
+            </div>
+            <button class="button ghost clear-button" id="clearUrlButton" type="button" data-i18n="clear">Clear</button>
+            <button class="button primary" type="submit" data-i18n="playStream">Play stream</button>
+          </div>
+          <div class="playlist-editor" id="playlistEditor" hidden>
+            <div class="editor-head"><span class="editor-title" data-i18n="editPlaylistOrder">Edit playlist order</span><span class="hint" id="editorCount">0 items</span></div>
+            <div class="playlist-list" id="playlistList" aria-live="polite"></div>
+            <div class="editor-actions"><button class="button ghost compact" id="cancelEditButton" type="button" data-i18n="cancel">Cancel</button><button class="button primary compact" id="saveEditButton" type="button" data-i18n="savePlaylist">Save playlist</button></div>
+          </div>
+          <label for="streamUrl" data-i18n="playlistUrl">HLS playlist URL</label>
+          <div class="url-row">
+            <input id="streamUrl" name="streamUrl" type="url" readonly placeholder="The selected stream URL will appear here" data-i18n-placeholder="urlPlaceholder" autocomplete="off" />
+            <button class="button ghost copy-button" id="copyUrlButton" type="button" disabled data-i18n="copy">Copy</button>
+          </div>
+        </form>
+
+        <div class="actions">
+          <button class="button secondary" id="rthkButton" type="button" data-i18n="getStreams">Get all RTHK streams</button>
+          <button class="button secondary" id="importButton" type="button" data-i18n="import">Import</button>
+          <button class="button secondary" id="exportButton" type="button" disabled data-i18n="export">Export</button>
+          <input class="file-input" id="importFile" type="file" accept=".csv,text/csv" />
+          <button class="button secondary" id="playButton" type="button" disabled data-i18n="startPlayback">Start playback</button>
+          <button class="button ghost" id="stopButton" type="button" data-i18n="stop">Stop</button>
+        </div>
+        <p class="hint" data-i18n="hint">The RTHK button reads the live playlist published by RTHK and fills the stream selector. Playback availability depends on the stream and your browser.</p>
+      </section>
+      <footer data-i18n="footer">Runs locally in your browser · No stream data is stored</footer>
+    </main>
+
+    <script>
+      (() => {
+        const $ = (selector) => document.querySelector(selector);
+        const languageSelect = $('#languageSelect');
+        const video = $('#video');
+        const form = $('#streamForm');
+        const streamSelect = $('#streamSelect');
+        const urlInput = $('#streamUrl');
+        const rthkButton = $('#rthkButton');
+        const playButton = $('#playButton');
+        const clearUrlButton = $('#clearUrlButton');
+        const copyUrlButton = $('#copyUrlButton');
+        const editPlaylistButton = $('#editPlaylistButton');
+        const playlistEditor = $('#playlistEditor');
+        const playlistList = $('#playlistList');
+        const editorCount = $('#editorCount');
+        const cancelEditButton = $('#cancelEditButton');
+        const saveEditButton = $('#saveEditButton');
+        const importButton = $('#importButton');
+        const exportButton = $('#exportButton');
+        const importFile = $('#importFile');
+        const stopButton = $('#stopButton');
+        const statusRow = $('#statusRow');
+        const statusText = $('#statusText');
+        const placeholder = $('#playerPlaceholder');
+        const playerCard = $('#playerCard');
+        const togglePlayerButton = $('#togglePlayerButton');
+        const RTHK_PLAYLIST_ENDPOINT = 'https://programme.rthk.hk/channel/radio/player_live_txt.php';
+        const RTHK_CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+        const STREAM_NAMES = [
+          ['RTHK Radio 1', /radio1/i], ['RTHK Radio 2', /radio2/i], ['RTHK Radio 3', /radio3/i],
+          ['RTHK Radio 4', /radio4/i], ['RTHK Radio 5', /radio5/i], ['RTHK Putonghua Channel', /radiopth/i],
+          ['RTHK CNR Hong Kong', /radiocnrhk/i], ['RTHK CNR Guangdong', /radiocmgrgb/i],
+          ['RTHK DAB 31', /dab31/i], ['RTHK DAB 33', /dab33/i], ['RTHK DAB 35', /dab35/i],
+          ['RTHK TV 31', /RTHKTV31/i], ['RTHK TV 32', /RTHKTV32/i], ['RTHK TV 33', /RTHKTV33/i],
+          ['RTHK TV 34', /RTHKTV34/i], ['RTHK TV 35', /RTHKTV35/i]
+        ];
+        const UNAVAILABLE_RTHK_STREAMS = [/dab31/i, /dab33/i, /dab35/i];
+        const KNOWN_RTHK_STREAMS = [
+          ['RTHK Radio 1', 'https://rthkradio1-live.akamaized.net/hls/live/2035313/radio1/master.m3u8'],
+          ['RTHK Radio 2', 'https://rthkradio2-live.akamaized.net/hls/live/2040078/radio2/master.m3u8'],
+          ['RTHK Radio 3', 'https://rthkradio3-live.akamaized.net/hls/live/2040079/radio3/master.m3u8'],
+          ['RTHK Radio 4', 'https://rthkradio4-live.akamaized.net/hls/live/2040080/radio4/master.m3u8'],
+          ['RTHK Radio 5', 'https://rthkradio5-live.akamaized.net/hls/live/2040081/radio5/master.m3u8'],
+          ['RTHK Putonghua Channel', 'https://rthkradiopth-live.akamaized.net/hls/live/2040082/radiopth/master.m3u8'],
+          ['RTHK CNR Hong Kong', 'https://rthkradiocnrhk-live.akamaized.net/hls/live/2046111/radiocnrhk/master.m3u8'],
+          ['RTHK CNR Guangdong', 'https://rthkradiocmgrgb-live.akamaized.net/hls/live/2046112/radiocmgrgb/master.m3u8'],
+          ['RTHK DAB 31', 'http://rthkaudio7-lh.akamaihd.net/i/dab31_1@355870/master.m3u8'],
+          ['RTHK DAB 33', 'http://rthkaudio8-lh.akamaihd.net/i/dab33_1@355871/master.m3u8'],
+          ['RTHK DAB 35', 'http://rthkaudio9-lh.akamaihd.net/i/dab35_1@355872/master.m3u8'],
+          ['RTHK TV 31', 'https://rthktv31-live.akamaized.net/hls/live/2036818/RTHKTV31/master.m3u8'],
+          ['RTHK TV 32', 'https://rthktv32-live.akamaized.net/hls/live/2036819/RTHKTV32/master.m3u8'],
+          ['RTHK TV 33', 'https://rthktv33-live.akamaized.net/hls/live/2101641/RTHKTV33/master.m3u8'],
+          ['RTHK TV 34', 'https://rthktv34-live.akamaized.net/hls/live/2101642/RTHKTV34/master.m3u8'],
+          ['RTHK TV 35', 'https://rthktv35-live.akamaized.net/hls/live/2101643/RTHKTV35/master.m3u8']
+        ].map(([name, url]) => ({ name, url }));
+        const translations = {
+          en: {
+            eyebrow: 'LIVE STREAM TOOL · V5', title: 'HLS Stream Player', lede: 'Retrieve all RTHK live streams, choose one, and start listening.', languageLabel: 'Language', player: 'Player', playerAriaLabel: 'HLS player', expandPlayer: 'Expand player', collapsePlayer: 'Collapse player', readyMessage: 'Your stream is ready when you are.', noStream: 'No stream loaded', rthkLiveStream: 'RTHK live stream', retrieveStreams: 'Retrieve streams first', selectStream: 'Select an RTHK stream', editPlaylist: 'Edit playlist', editingPlaylist: 'Editing playlist', clear: 'Clear', playStream: 'Play stream', editPlaylistOrder: 'Edit playlist order', cancel: 'Cancel', savePlaylist: 'Save playlist', playlistUrl: 'HLS playlist URL', urlPlaceholder: 'The selected stream URL will appear here', copy: 'Copy', getStreams: 'Get all RTHK streams', import: 'Import', export: 'Export', startPlayback: 'Start playback', pausePlayback: 'Pause playback', stop: 'Stop', hint: 'The RTHK button reads the live playlist published by RTHK and fills the stream selector. Playback availability depends on the stream and your browser.', footer: 'Runs locally in your browser · No stream data is stored', item: 'item', items: 'items', noItems: 'No playlist items. Save to keep the playlist empty.', moveUp: 'Move up', moveDown: 'Move down', remove: 'Remove', loading: 'Loading stream…', unavailable: 'This RTHK DAB stream is currently unavailable: its published HLS endpoint returns HTTP 404.', streamReady: 'Stream ready — click Start playback.', streamLoaded: 'Stream loaded — click Start playback.', playbackError: 'Playback error', unsupported: 'This browser does not support HLS playback.', retrieveFirst: 'Retrieve and select an RTHK stream first.', playing: 'Playing live stream', paused: 'Playback paused', couldNotStart: 'Playback could not start', saved: 'playlist entries saved.', copied: 'Stream URL copied to clipboard.', copyBlocked: 'Copy was blocked; the URL is selected for manual copying.', buffering: 'Buffering…', browserError: 'The browser could not play this stream.', retrieving: 'Retrieving all RTHK live streams…', retrieved: 'RTHK live streams retrieved.', fallback: 'RTHK page unavailable; loaded the latest known 16-stream catalog.', noStreamsFound: 'No HLS live streams were found in the RTHK response.', imported: 'stream entries imported.', invalidImport: 'No valid stream entries were found.', importError: 'Could not import streams', exported: 'stream entries exported.', rthkProxyError: 'RTHK proxy returned HTTP'
+          },
+          'zh-Hant': {
+            eyebrow: '直播串流工具 · V5', title: 'HLS 串流播放器', lede: '取得所有港台直播串流，選擇頻道後開始收聽。', languageLabel: '語言', player: '播放器', playerAriaLabel: 'HLS 播放器', expandPlayer: '展開播放器', collapsePlayer: '收合播放器', readyMessage: '串流已準備就緒。', noStream: '尚未載入串流', rthkLiveStream: '港台直播串流', retrieveStreams: '請先取得串流', selectStream: '選擇港台串流', editPlaylist: '編輯播放清單', editingPlaylist: '正在編輯播放清單', clear: '清除', playStream: '播放串流', editPlaylistOrder: '編輯播放清單順序', cancel: '取消', savePlaylist: '儲存播放清單', playlistUrl: 'HLS 播放清單網址', urlPlaceholder: '所選串流網址會顯示在這裡', copy: '複製', getStreams: '取得所有港台串流', import: '匯入', export: '匯出', startPlayback: '開始播放', pausePlayback: '暫停播放', stop: '停止', hint: '「取得港台串流」會讀取港台發佈的直播播放清單並填入選擇器。實際播放能力取決於串流及您的瀏覽器。', footer: '在瀏覽器本機執行 · 不會儲存串流資料', item: '項目', items: '項目', noItems: '沒有播放清單項目。儲存後會保留空白播放清單。', moveUp: '上移', moveDown: '下移', remove: '移除', loading: '正在載入串流…', unavailable: '此港台 DAB 串流目前無法使用：其發佈的 HLS 端點回傳 HTTP 404。', streamReady: '串流已就緒 — 點擊「開始播放」。', streamLoaded: '串流已載入 — 點擊「開始播放」。', playbackError: '播放錯誤', unsupported: '此瀏覽器不支援 HLS 播放。', retrieveFirst: '請先取得並選擇港台串流。', playing: '正在播放直播串流', paused: '播放已暫停', couldNotStart: '無法開始播放', saved: '個播放清單項目已儲存。', copied: '串流網址已複製到剪貼簿。', copyBlocked: '複製被阻擋；網址已選取，請手動複製。', buffering: '緩衝中…', browserError: '瀏覽器無法播放此串流。', retrieving: '正在取得所有港台直播串流…', retrieved: '個港台直播串流已取得。', fallback: '港台頁面無法使用，已載入最近的 16 個串流目錄。', noStreamsFound: '港台回應中找不到 HLS 直播串流。', imported: '個串流項目已匯入。', invalidImport: '找不到有效的串流項目。', importError: '無法匯入串流', exported: '個串流項目已匯出。', rthkProxyError: '港台代理伺服器回傳 HTTP'
+          },
+          'zh-Hans': {
+            eyebrow: '直播流工具 · V5', title: 'HLS 流播放器', lede: '获取所有港台直播流，选择频道后开始收听。', languageLabel: '语言', player: '播放器', playerAriaLabel: 'HLS 播放器', expandPlayer: '展开播放器', collapsePlayer: '收起播放器', readyMessage: '流已准备就绪。', noStream: '尚未加载流', rthkLiveStream: '港台直播流', retrieveStreams: '请先获取流', selectStream: '选择港台流', editPlaylist: '编辑播放列表', editingPlaylist: '正在编辑播放列表', clear: '清除', playStream: '播放流', editPlaylistOrder: '编辑播放列表顺序', cancel: '取消', savePlaylist: '保存播放列表', playlistUrl: 'HLS 播放列表网址', urlPlaceholder: '所选流网址会显示在这里', copy: '复制', getStreams: '获取所有港台流', import: '导入', export: '导出', startPlayback: '开始播放', pausePlayback: '暂停播放', stop: '停止', hint: '“获取港台流”会读取港台发布的直播播放列表并填入选择器。实际播放能力取决于流和您的浏览器。', footer: '在浏览器本地运行 · 不会存储流数据', item: '项', items: '项', noItems: '没有播放列表项。保存后会保留空播放列表。', moveUp: '上移', moveDown: '下移', remove: '移除', loading: '正在加载流…', unavailable: '此港台 DAB 流当前不可用：其发布的 HLS 端点返回 HTTP 404。', streamReady: '流已就绪 — 点击“开始播放”。', streamLoaded: '流已加载 — 点击“开始播放”。', playbackError: '播放错误', unsupported: '此浏览器不支持 HLS 播放。', retrieveFirst: '请先获取并选择港台流。', playing: '正在播放直播流', paused: '播放已暂停', couldNotStart: '无法开始播放', saved: '个播放列表项已保存。', copied: '流网址已复制到剪贴板。', copyBlocked: '复制被阻止；网址已选中，请手动复制。', buffering: '缓冲中…', browserError: '浏览器无法播放此流。', retrieving: '正在获取所有港台直播流…', retrieved: '个港台直播流已获取。', fallback: '港台页面不可用，已加载最近的 16 个流目录。', noStreamsFound: '港台响应中找不到 HLS 直播流。', imported: '个流项目已导入。', invalidImport: '找不到有效的流项目。', importError: '无法导入流', exported: '个流项目已导出。', rthkProxyError: '港台代理服务器返回 HTTP'
+          }
+        };
+        let locale = localStorage.getItem('hls-player-language') || 'en';
+        if (!translations[locale]) locale = 'en';
+        function t(key) { return translations[locale][key] ?? translations.en[key] ?? key; }
+        function applyTranslations() {
+          document.documentElement.lang = locale;
+          document.title = `${t('title')} · v5`;
+          document.querySelectorAll('[data-i18n]').forEach((element) => { element.textContent = t(element.dataset.i18n); });
+          document.querySelectorAll('[data-i18n-aria-label]').forEach((element) => { element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)); });
+          document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+          languageSelect.value = locale;
+          updateSelectedUrl();
+          syncPlayButton();
+          if (playlistEditor.hidden === false) renderEditor();
+          const currentUrl = streamSelect.value;
+          if (!currentUrl) streamSelect.options[0].textContent = t('retrieveStreams');
+        }
+        let hls;
+        let editingStreams = [];
+
+        function setStatus(message, state = '') {
+          statusText.textContent = message;
+          statusRow.dataset.state = state;
+        }
+        function syncPlayButton() { playButton.textContent = video.paused ? t('startPlayback') : t('pausePlayback'); }
+        function stopPlayback() {
+          if (hls) { hls.destroy(); hls = undefined; }
+          video.pause(); video.removeAttribute('src'); video.load();
+          placeholder.classList.remove('hidden'); playButton.disabled = true; syncPlayButton(); setStatus(t('noStream'));
+        }
+        function playStream(url) {
+          stopPlayback(); placeholder.classList.add('hidden'); setStatus(t('loading'));
+          if (UNAVAILABLE_RTHK_STREAMS.some((pattern) => pattern.test(url))) {
+            placeholder.classList.remove('hidden');
+            setStatus(t('unavailable'), 'error');
+            return;
+          }
+          if (globalThis.Hls?.isSupported()) {
+            hls = new globalThis.Hls({ enableWorker: true, lowLatencyMode: true });
+            hls.loadSource(url); hls.attachMedia(video);
+            hls.on(globalThis.Hls.Events.MANIFEST_PARSED, () => { playButton.disabled = false; setStatus(t('streamReady'), 'success'); video.play().catch(() => {}); });
+            hls.on(globalThis.Hls.Events.ERROR, (_event, data) => { if (data.fatal) setStatus(`${t('playbackError')}: ${data.details || 'unable to load stream'}`, 'error'); });
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url; playButton.disabled = false; setStatus(t('streamLoaded'), 'success'); video.play().catch(() => {});
+          } else setStatus(t('unsupported'), 'error');
+        }
+        async function startPlayback() {
+          if (!video.src && !hls) { const url = urlInput.value.trim(); if (!url) return setStatus(t('retrieveFirst'), 'error'); return playStream(url); }
+          try { if (video.paused) { if (hls) hls.startLoad(); await video.play(); setStatus(t('playing'), 'success'); } else { video.pause(); setStatus(t('paused'), 'success'); } syncPlayButton(); }
+          catch (error) { setStatus(`${t('couldNotStart')}: ${error.message}`, 'error'); }
+        }
+        function setStreams(streams) {
+          streamSelect.replaceChildren(new Option(t('selectStream'), ''));
+          streams.forEach(({ name, url }) => streamSelect.add(new Option(name, url)));
+          streamSelect.selectedIndex = streams.length ? 1 : 0;
+          exportButton.disabled = !streams.length;
+          updateSelectedUrl();
+        }
+        function getStreamsFromSelect() {
+          return [...streamSelect.options].slice(1).map((option) => ({ name: option.textContent, url: option.value }));
+        }
+        function renderEditor() {
+          playlistList.replaceChildren();
+          editorCount.textContent = `${editingStreams.length} ${editingStreams.length === 1 ? t('item') : t('items')}`;
+          if (!editingStreams.length) {
+            const empty = document.createElement('div'); empty.className = 'hint'; empty.textContent = t('noItems'); playlistList.append(empty); return;
+          }
+          editingStreams.forEach((stream, index) => {
+            const item = document.createElement('div'); item.className = 'playlist-item';
+            const name = document.createElement('span'); name.className = 'playlist-item-name'; name.textContent = stream.name; name.title = stream.url;
+            const actions = document.createElement('span'); actions.className = 'playlist-item-actions';
+            const up = document.createElement('button'); up.className = 'icon-button'; up.type = 'button'; up.textContent = '↑'; up.title = t('moveUp'); up.setAttribute('aria-label', `${t('moveUp')}: ${stream.name}`); up.disabled = index === 0;
+            const down = document.createElement('button'); down.className = 'icon-button'; down.type = 'button'; down.textContent = '↓'; down.title = t('moveDown'); down.setAttribute('aria-label', `${t('moveDown')}: ${stream.name}`); down.disabled = index === editingStreams.length - 1;
+            const remove = document.createElement('button'); remove.className = 'icon-button'; remove.type = 'button'; remove.textContent = '×'; remove.title = t('remove'); remove.setAttribute('aria-label', `${t('remove')}: ${stream.name}`);
+            up.addEventListener('click', () => { [editingStreams[index - 1], editingStreams[index]] = [editingStreams[index], editingStreams[index - 1]]; renderEditor(); });
+            down.addEventListener('click', () => { [editingStreams[index], editingStreams[index + 1]] = [editingStreams[index + 1], editingStreams[index]]; renderEditor(); });
+            remove.addEventListener('click', () => { editingStreams.splice(index, 1); renderEditor(); });
+            actions.append(up, down, remove); item.append(name, actions); playlistList.append(item);
+          });
+        }
+        function openPlaylistEditor() {
+          editingStreams = getStreamsFromSelect(); renderEditor(); playlistEditor.hidden = false; editPlaylistButton.textContent = t('editingPlaylist'); editPlaylistButton.disabled = true;
+        }
+        function closePlaylistEditor() { playlistEditor.hidden = true; editPlaylistButton.textContent = t('editPlaylist'); editPlaylistButton.disabled = false; editingStreams = []; }
+        function savePlaylistEdits() {
+          const selectedUrl = streamSelect.value; const savedCount = editingStreams.length; setStreams(editingStreams); const restored = [...streamSelect.options].findIndex((option) => option.value === selectedUrl); streamSelect.selectedIndex = restored >= 0 ? restored : (streamSelect.options.length > 1 ? 1 : 0); updateSelectedUrl(); closePlaylistEditor(); setStatus(`${savedCount} ${t('saved')}`, 'success');
+        }
+        function updateSelectedUrl() {
+          urlInput.value = streamSelect.value;
+          copyUrlButton.disabled = !urlInput.value;
+        }
+        function getStreamName(url) {
+          return STREAM_NAMES.find(([, pattern]) => pattern.test(url))?.[0] || 'RTHK live stream';
+        }
+        function parseCsvLine(line) {
+          const fields = []; let field = ''; let quoted = false;
+          for (let index = 0; index < line.length; index += 1) {
+            const character = line[index];
+            if (character === '"' && line[index + 1] === '"' && quoted) { field += '"'; index += 1; }
+            else if (character === '"') quoted = !quoted;
+            else if (character === ',' && !quoted) { fields.push(field.trim()); field = ''; }
+            else field += character;
+          }
+          fields.push(field.trim());
+          return fields;
+        }
+        function getImportedStreams(text) {
+          return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map(parseCsvLine).filter((fields, index) => {
+            const isHeader = index === 0 && /^name$/i.test(fields[0]) && /^url$/i.test(fields[1]);
+            return !isHeader && fields.length >= 2 && fields[0] && /^https?:\/\//i.test(fields[1]);
+          }).map(([name, url]) => ({ name, url }));
+        }
+        function escapeCsvField(value) {
+          return `"${String(value).replaceAll('"', '""')}"`;
+        }
+        function timestampForFilename() {
+          return Math.floor(Date.now() / 1000);
+        }
+        function exportStreams() {
+          const streams = [...streamSelect.options].slice(1).map((option) => ({ name: option.textContent, url: option.value }));
+          if (!streams.length) return;
+          const content = `name,url\n${streams.map(({ name, url }) => `${escapeCsvField(name)},${escapeCsvField(url)}`).join('\n')}\n`;
+          const blobUrl = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+          const link = document.createElement('a');
+          link.href = blobUrl; link.download = `rthk-streams-${timestampForFilename()}.csv`;
+          document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(blobUrl);
+          setStatus(`${streams.length} ${t('exported')}`, 'success');
+        }
+        async function fetchRthkPage() {
+          try {
+            const directResponse = await fetch(RTHK_PLAYLIST_ENDPOINT, { cache: 'no-store' });
+            if (directResponse.ok) return directResponse.text();
+          } catch (_error) {
+            // The RTHK server does not expose CORS headers to local file pages.
+          }
+          const proxyUrl = `${RTHK_CORS_PROXY}${encodeURIComponent(RTHK_PLAYLIST_ENDPOINT)}`;
+          const proxyResponse = await fetch(proxyUrl, { cache: 'no-store' });
+          if (!proxyResponse.ok) throw new Error(`${t('rthkProxyError')} ${proxyResponse.status}`);
+          return proxyResponse.text();
+        }
+        async function getAllRthkStreams() {
+          rthkButton.disabled = true; setStatus(t('retrieving'));
+          try {
+            const text = await fetchRthkPage();
+            const urls = [...new Set(text.match(/https?:[^\s"'<>]+\.m3u8[^\s"'<>]*/gi) || [])];
+            const streams = urls.map((url) => ({ name: getStreamName(url), url }));
+            if (!streams.length) throw new Error(t('noStreamsFound'));
+            setStreams(streams); setStatus(`${streams.length} ${t('retrieved')}`, 'success');
+          } catch (error) {
+            setStreams(KNOWN_RTHK_STREAMS);
+            setStatus(`${t('fallback')} (${error.message})`, 'success');
+          } finally { rthkButton.disabled = false; }
+        }
+        function togglePlayer() {
+          const collapsed = playerCard.classList.toggle('is-collapsed');
+          togglePlayerButton.setAttribute('aria-expanded', String(!collapsed)); togglePlayerButton.textContent = collapsed ? t('expandPlayer') : t('collapsePlayer');
+        }
+
+        form.addEventListener('submit', (event) => { event.preventDefault(); const url = urlInput.value.trim(); if (url) playStream(url); });
+        rthkButton.addEventListener('click', getAllRthkStreams); streamSelect.addEventListener('change', updateSelectedUrl);
+        editPlaylistButton.addEventListener('click', openPlaylistEditor); cancelEditButton.addEventListener('click', closePlaylistEditor); saveEditButton.addEventListener('click', savePlaylistEdits);
+        exportButton.addEventListener('click', exportStreams);
+        importButton.addEventListener('click', () => importFile.click());
+        importFile.addEventListener('change', async () => {
+          const [file] = importFile.files || [];
+          if (!file) return;
+          try {
+            const streams = getImportedStreams(await file.text());
+            if (!streams.length) throw new Error(t('invalidImport'));
+            setStreams(streams); setStatus(`${streams.length} ${t('imported')}`, 'success');
+          } catch (error) {
+            setStatus(`${t('importError')}: ${error.message}`, 'error');
+          } finally { importFile.value = ''; }
+        });
+        copyUrlButton.addEventListener('click', async () => {
+          if (!urlInput.value) return;
+          try { await navigator.clipboard.writeText(urlInput.value); setStatus(t('copied'), 'success'); }
+          catch (_error) { urlInput.select(); setStatus(t('copyBlocked'), 'error'); }
+        });
+        playButton.addEventListener('click', startPlayback); stopButton.addEventListener('click', stopPlayback); togglePlayerButton.addEventListener('click', togglePlayer);
+        clearUrlButton.addEventListener('click', () => { closePlaylistEditor(); streamSelect.replaceChildren(new Option(t('retrieveStreams'), '')); urlInput.value = ''; copyUrlButton.disabled = true; exportButton.disabled = true; editPlaylistButton.disabled = false; streamSelect.focus(); });
+        video.addEventListener('playing', () => { syncPlayButton(); setStatus(t('playing'), 'success'); });
+        video.addEventListener('pause', syncPlayButton); video.addEventListener('waiting', () => setStatus(t('buffering'))); video.addEventListener('error', () => { if (!hls) setStatus(t('browserError'), 'error'); });
+        languageSelect.addEventListener('change', () => { locale = languageSelect.value; localStorage.setItem('hls-player-language', locale); applyTranslations(); });
+        applyTranslations();
+      })();
+    </script>
+  </body>
+</html>
